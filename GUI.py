@@ -68,7 +68,7 @@ def main():
     specs_btn.pack(pady=5)
 
     global output_box
-    output_box = scrolledtext.ScrolledText(window, width=100, height=20,
+    output_box = scrolledtext.ScrolledText(window, width=140, height=28,
                                            bg="black", fg="white",
                                            insertbackground="white")
     output_box.pack(pady=10)
@@ -79,3 +79,4 @@ game_entry = None
 output_box = None
 
 main()
+
