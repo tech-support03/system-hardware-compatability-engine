@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, messagebox
 import requests
 from bs4 import BeautifulSoup
 import json
@@ -8,14 +8,148 @@ import platform
 import subprocess
 import threading
 import google.generativeai as genai
+import os
+from dotenv import load_dotenv
 
-# Configure Google AI Studio API
-# Get your API key from: https://aistudio.google.com/app/apikey
-GOOGLE_API_KEY = "######"  # Replace with your actual API key
-genai.configure(api_key=GOOGLE_API_KEY)
+# Load environment variables from .env file (if it exists)
+load_dotenv()
 
-# Initialize the model
-model = genai.GenerativeModel('gemini-2.5-flash')
+# ============================================
+# ENVIRONMENT VARIABLE API KEY MANAGEMENT
+# ============================================
+
+def get_api_key():
+    """
+    Get API key from environment variable.
+    Priority order:
+    1. GOOGLE_AI_API_KEY environment variable
+    2. .env file (loaded by python-dotenv)
+    3. Prompt user to set it
+    """
+    api_key = os.getenv('GOOGLE_AI_API_KEY')
+    
+    if api_key:
+        return api_key
+    
+    # If no environment variable is set, show instructions
+    show_env_setup_instructions()
+    return None
+
+def show_env_setup_instructions():
+    """Show instructions for setting up the environment variable."""
+    instructions = """
+╔═══════════════════════════════════════════════════════════╗
+║         GOOGLE AI API KEY NOT FOUND                       ║
+╚═══════════════════════════════════════════════════════════╝
+
+To use this app, you need to set the GOOGLE_AI_API_KEY environment variable.
+
+📋 SETUP INSTRUCTIONS:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🪟 WINDOWS - Option 1: Permanent (Recommended)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Press Win + R, type: sysdm.cpl
+2. Go to "Advanced" tab → "Environment Variables"
+3. Under "User variables", click "New"
+4. Variable name: GOOGLE_AI_API_KEY
+5. Variable value: [Paste your API key]
+6. Click OK, restart this app
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🪟 WINDOWS - Option 2: Command Prompt (Current Session)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+set GOOGLE_AI_API_KEY=your_api_key_here
+python main.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🪟 WINDOWS - Option 3: PowerShell (Current Session)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$env:GOOGLE_AI_API_KEY="your_api_key_here"
+python main.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🐧 LINUX / 🍎 MAC - Permanent
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Open terminal
+2. Edit your shell config file:
+   - Bash: nano ~/.bashrc
+   - Zsh: nano ~/.zshrc
+3. Add this line:
+   export GOOGLE_AI_API_KEY="your_api_key_here"
+4. Save and run: source ~/.bashrc (or ~/.zshrc)
+5. Restart this app
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🐧 LINUX / 🍎 MAC - Current Session
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export GOOGLE_AI_API_KEY="your_api_key_here"
+python main.py
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 EASIEST METHOD: .env File (All Platforms)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Create a file named ".env" in the same folder as this app
+2. Add this line to the file:
+   GOOGLE_AI_API_KEY=your_api_key_here
+3. Save and restart the app
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔗 Get your API key from:
+   https://aistudio.google.com/app/apikey
+
+⚠️  After setting the environment variable, you MUST restart the app!
+"""
+    
+    print(instructions)
+    
+    # Show GUI dialog too
+    root = tk.Tk()
+    root.withdraw()
+    
+    result = messagebox.askquestion(
+        "API Key Setup Required",
+        "No API key found in environment variables.\n\n"
+        "Would you like to open the setup instructions in your browser?\n\n"
+        "(Instructions have also been printed to the console)",
+        icon='warning'
+    )
+    
+    if result == 'yes':
+        import webbrowser
+        webbrowser.open("https://aistudio.google.com/app/apikey")
+    
+    root.destroy()
+
+def setup_api_key():
+    """Initialize and configure the API key from environment variable."""
+    api_key = get_api_key()
+    
+    if not api_key:
+        return None
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        return model
+    except Exception as e:
+        messagebox.showerror(
+            "API Error", 
+            f"Failed to initialize Google AI: {str(e)}\n\n"
+            "Your API key might be invalid. Please check the GOOGLE_AI_API_KEY environment variable."
+        )
+        return None
+
+# ============================================
+# REST OF YOUR APP CODE (SAME AS BEFORE)
+# ============================================
 
 def get_monitor_resolution():
     """Get the monitor resolution."""
@@ -29,17 +163,97 @@ def get_monitor_resolution():
     except:
         return "Unknown"
 
+def get_gpu_info_fixed():
+    """Get GPU information, filtering out virtual display adapters."""
+    gpu_name = "Unknown"
+    gpu_memory = None
+    
+    virtual_keywords = ['parsec', 'virtual', 'remote', 'microsoft basic', 'vnc', 
+                       'teamviewer', 'splashtop', 'citrix', 'vmware', 'hyper-v',
+                       'generic pnp', 'rdp', 'standard vga']
+    
+    try:
+        if platform.system() == "Windows":
+            gpu_info = subprocess.check_output(
+                ["wmic", "path", "win32_VideoController", "get", "name,AdapterRAM"],
+                encoding='utf-8',
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            lines = [line.strip() for line in gpu_info.split('\n') if line.strip()]
+            
+            for line in lines[1:]:
+                if not line:
+                    continue
+                
+                line_lower = line.lower()
+                
+                if any(keyword in line_lower for keyword in virtual_keywords):
+                    continue
+                
+                parts = line.rsplit(None, 1)
+                
+                if len(parts) >= 1:
+                    potential_gpu = parts[0].strip()
+                    
+                    if (potential_gpu and 
+                        ('amd' in line_lower or 'radeon' in line_lower or
+                         'nvidia' in line_lower or 'geforce' in line_lower or
+                         'intel' in line_lower and 'arc' in line_lower or
+                         'intel' in line_lower and 'uhd' in line_lower or
+                         'intel' in line_lower and 'iris' in line_lower or
+                         'gtx' in line_lower or 'rtx' in line_lower or
+                         'rx' in line_lower)):
+                        
+                        gpu_name = potential_gpu
+                        
+                        if len(parts) == 2:
+                            try:
+                                vram_bytes = int(parts[1])
+                                gpu_memory = f"{round(vram_bytes / (1024**2))}MB"
+                            except:
+                                pass
+                        
+                        break
+            
+        elif platform.system() == "Linux":
+            try:
+                nvidia_info = subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    encoding='utf-8'
+                )
+                gpu_name = nvidia_info.strip()
+            except:
+                lspci_info = subprocess.check_output(["lspci"], encoding='utf-8')
+                for line in lspci_info.split('\n'):
+                    if 'VGA' in line or 'Display' in line or '3D' in line:
+                        line_lower = line.lower()
+                        if not any(keyword in line_lower for keyword in virtual_keywords):
+                            gpu_name = line.split(':')[-1].strip()
+                            break
+        
+        elif platform.system() == "Darwin":
+            gpu_info = subprocess.check_output(
+                ["system_profiler", "SPDisplaysDataType"],
+                encoding='utf-8'
+            )
+            for line in gpu_info.split('\n'):
+                if 'Chipset Model:' in line:
+                    gpu_name = line.split(':')[1].strip()
+                    break
+    
+    except Exception as e:
+        print(f"GPU detection error: {e}")
+    
+    return gpu_name, gpu_memory
+
 def get_system_specs():
     """Get relevant system specifications for gaming."""
     specs = {}
     
-    # Operating System
     specs['os'] = f"{platform.system()} {platform.release()}"
-    
-    # Monitor Resolution
     specs['resolution'] = get_monitor_resolution()
     
-    # CPU Information
     specs['cpu'] = platform.processor()
     try:
         if platform.system() == "Windows":
@@ -48,12 +262,10 @@ def get_system_specs():
                 encoding='utf-8',
                 creationflags=subprocess.CREATE_NO_WINDOW
             ).strip()
-            # Split by lines and get the actual CPU name (skip header)
             lines = [line.strip() for line in cpu_name.split('\n') if line.strip()]
             if len(lines) > 1:
                 specs['cpu'] = lines[1]
             elif lines:
-                # Sometimes the header and value are on same line
                 specs['cpu'] = lines[0].replace('Name', '').strip()
         elif platform.system() == "Linux":
             cpu_info = subprocess.check_output(["cat", "/proc/cpuinfo"], 
@@ -72,55 +284,15 @@ def get_system_specs():
     specs['cpu_cores'] = psutil.cpu_count(logical=False)
     specs['cpu_threads'] = psutil.cpu_count(logical=True)
     
-    # GPU Information
-    specs['gpu'] = "Unknown"
-    try:
-        import GPUtil
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            specs['gpu'] = gpus[0].name
-            specs['gpu_memory'] = f"{gpus[0].memoryTotal}MB"
-    except:
-        pass
+    gpu_name, gpu_memory = get_gpu_info_fixed()
+    specs['gpu'] = gpu_name
+    if gpu_memory:
+        specs['gpu_memory'] = gpu_memory
     
-    # Fallback GPU detection
-    if specs['gpu'] == "Unknown":
-        try:
-            if platform.system() == "Windows":
-                gpu_info = subprocess.check_output(["wmic", "path", "win32_VideoController", 
-                                                   "get", "name"], encoding='utf-8')
-                gpus = [line.strip() for line in gpu_info.split('\n') 
-                        if line.strip() and line.strip() != 'Name']
-                if gpus:
-                    specs['gpu'] = gpus[0]
-            elif platform.system() == "Linux":
-                try:
-                    nvidia_info = subprocess.check_output(["nvidia-smi", "--query-gpu=name", 
-                                                          "--format=csv,noheader"], 
-                                                         encoding='utf-8')
-                    specs['gpu'] = nvidia_info.strip()
-                except:
-                    lspci_info = subprocess.check_output(["lspci"], encoding='utf-8')
-                    for line in lspci_info.split('\n'):
-                        if 'VGA' in line or 'Display' in line:
-                            specs['gpu'] = line.split(':')[-1].strip()
-                            break
-            elif platform.system() == "Darwin":
-                gpu_info = subprocess.check_output(["system_profiler", "SPDisplaysDataType"], 
-                                                  encoding='utf-8')
-                for line in gpu_info.split('\n'):
-                    if 'Chipset Model:' in line:
-                        specs['gpu'] = line.split(':')[1].strip()
-                        break
-        except:
-            pass
-    
-    # RAM Information
     svmem = psutil.virtual_memory()
     specs['ram_total_gb'] = round(svmem.total / (1024**3), 2)
     specs['ram_available_gb'] = round(svmem.available / (1024**3), 2)
     
-    # Storage
     try:
         disk = psutil.disk_usage('/')
         specs['storage_free_gb'] = round(disk.free / (1024**3), 2)
@@ -128,7 +300,6 @@ def get_system_specs():
         specs['storage_free_gb'] = "Unknown"
     
     return specs
-
 
 def search_game_by_name(game_name):
     """Search for a game by name and return matching results with app IDs."""
@@ -146,7 +317,6 @@ def search_game_by_name(game_name):
         
     except:
         return []
-
 
 def get_game_requirements(app_id):
     """Get system requirements for a Steam game using the official API."""
@@ -181,7 +351,6 @@ def get_game_requirements(app_id):
     except:
         return {"error": "Failed to fetch game data"}
 
-
 def clean_html_requirements(html_text):
     """Clean HTML from requirements text to make it more readable."""
     if not html_text or html_text == 'Not specified':
@@ -189,7 +358,6 @@ def clean_html_requirements(html_text):
     
     soup = BeautifulSoup(html_text, 'html.parser')
     return soup.get_text(separator='\n', strip=True)
-
 
 def format_requirements_for_ai(requirements):
     """Format the requirements data into a clean string for the AI."""
@@ -210,7 +378,6 @@ def format_requirements_for_ai(requirements):
     
     return formatted
 
-
 def format_system_specs(specs):
     """Format system specs into readable text."""
     formatted = "YOUR PC SPECS:\n"
@@ -226,20 +393,16 @@ def format_system_specs(specs):
     formatted += f"Free Storage: {specs.get('storage_free_gb', '?')} GB\n"
     return formatted
 
-
-def compare_specs_with_ai(game_name, requirements_text, system_specs_text, system_specs):
+def compare_specs_with_ai(game_name, requirements_text, system_specs_text, system_specs, model):
     """Send both game requirements and system specs to Google AI for comparison."""
     prompt = f"""{system_specs_text}
 
 {requirements_text}
 
 Question: Can my PC run {game_name}? Please compare my system specs against the game's requirements and tell me:
-1. Whether I meet the minimum requirements
-2. Whether I meet the recommended requirements
-3. What performance I can expect at my monitor resolution ({system_specs.get('resolution', 'unknown')})
-4. What graphics settings I should use (low/medium/high/ultra)
-5. Estimated FPS range I can expect
-6. Any components I should upgrade if needed"""
+1. What performance I can expect at my monitor resolution ({system_specs.get('resolution', 'unknown')})
+2. What graphics settings I should use (low/medium/high/ultra)
+3. Estimated FPS range I can expect"""
     
     try:
         response = model.generate_content(prompt)
@@ -247,34 +410,31 @@ Question: Can my PC run {game_name}? Please compare my system specs against the 
     except Exception as e:
         return f"Error querying Google AI: {str(e)}"
 
+# ============================================
+# GUI CODE
+# ============================================
 
-# GUI Code
 def run_check(event=None):
     game = game_entry.get()
     if game.strip() == "":
         output_box.insert(tk.END, "Please enter a game name.\n\n")
         return
     
-    # Clear output box
     output_box.delete(1.0, tk.END)
     output_box.insert(tk.END, f"Checking compatibility for: {game}\n")
     output_box.insert(tk.END, "=" * 60 + "\n\n")
     
-    # Run in separate thread to avoid freezing GUI
     thread = threading.Thread(target=check_compatibility, args=(game,))
     thread.daemon = True
     thread.start()
 
-
 def check_compatibility(game_name):
     """Main compatibility check function that runs in a separate thread."""
     try:
-        # Get system specs
         output_box.insert(tk.END, "Detecting system specifications...\n")
         output_box.see(tk.END)
         system_specs = get_system_specs()
         
-        # Search for game
         output_box.insert(tk.END, f"Searching for '{game_name}' on Steam...\n")
         output_box.see(tk.END)
         search_results = search_game_by_name(game_name)
@@ -286,7 +446,6 @@ def check_compatibility(game_name):
         output_box.insert(tk.END, f"Found {len(search_results)} result(s). Using: {search_results[0]['name']}\n")
         output_box.see(tk.END)
         
-        # Get requirements
         output_box.insert(tk.END, "Fetching game requirements...\n")
         output_box.see(tk.END)
         requirements = get_game_requirements(search_results[0]['app_id'])
@@ -295,15 +454,12 @@ def check_compatibility(game_name):
             output_box.insert(tk.END, f"\nError: {requirements['error']}\n\n")
             return
         
-        # Format data
         req_text = format_requirements_for_ai(requirements)
         specs_text = format_system_specs(system_specs)
         
-        # Display requirements
         output_box.insert(tk.END, "\n" + req_text + "\n")
         output_box.see(tk.END)
         
-        # Ask AI
         output_box.insert(tk.END, "Analyzing compatibility with AI...\n")
         output_box.insert(tk.END, "=" * 60 + "\n")
         output_box.see(tk.END)
@@ -312,7 +468,8 @@ def check_compatibility(game_name):
             search_results[0]['name'],
             req_text,
             specs_text,
-            system_specs
+            system_specs,
+            ai_model
         )
         
         output_box.insert(tk.END, "\nAI COMPATIBILITY ANALYSIS:\n")
@@ -322,7 +479,6 @@ def check_compatibility(game_name):
         
     except Exception as e:
         output_box.insert(tk.END, f"\nError: {str(e)}\n\n")
-
 
 def show_specs():
     """Display system specifications."""
@@ -345,8 +501,21 @@ def show_specs():
     output_box.insert(tk.END, f"Free Storage: {specs.get('storage_free_gb', '?')} GB\n")
     output_box.insert(tk.END, "=" * 60 + "\n\n")
 
-
 def main():
+    global ai_model, game_entry, output_box
+    
+    # Setup API key from environment variable
+    ai_model = setup_api_key()
+    
+    if not ai_model:
+        messagebox.showerror(
+            "Startup Failed", 
+            "Cannot start without a valid API key.\n\n"
+            "Please set the GOOGLE_AI_API_KEY environment variable.\n"
+            "Check the console for detailed instructions."
+        )
+        return
+    
     window = tk.Tk()
     window.title("System Hardware Compatibility Checker")
     window.geometry("900x600")
@@ -362,7 +531,6 @@ def main():
     game_label = tk.Label(input_frame, text="Enter Game Name:", fg="white", bg="black")
     game_label.grid(row=0, column=0, padx=5)
 
-    global game_entry
     game_entry = tk.Entry(input_frame, width=40)
     game_entry.grid(row=0, column=1, padx=5)
     game_entry.focus_set()
@@ -377,8 +545,7 @@ def main():
                          bg="#333333", fg="white", activebackground="#555555")
     specs_btn.pack(pady=5)
 
-    global output_box
-    output_box = scrolledtext.ScrolledText(window, width=100, height=20,
+    output_box = scrolledtext.ScrolledText(window, width=140, height=50,
                                            bg="black", fg="white",
                                            insertbackground="white",
                                            font=("Consolas", 9))
@@ -386,7 +553,7 @@ def main():
 
     window.mainloop()
 
-
+ai_model = None
 game_entry = None
 output_box = None
 

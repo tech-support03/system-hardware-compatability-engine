@@ -1,327 +1,357 @@
 import requests
-from bs4 import BeautifulSoup
-import json
-from openai import OpenAI
-import psutil
 import platform
+import psutil
+import screeninfo
+import json
 import subprocess
-import tkinter as tk
+import re
 
-# Initialize LM Studio client
-client = OpenAI(base_url="http://localhost:1234/v1", api_key="not-needed")
 
-def get_monitor_resolution():
-    """
-    Get the monitor resolution.
+def get_cpu_info():
+    """Get CPU information across different platforms."""
+    system = platform.system()
+    cpu_name = "Unknown CPU"
     
-    Returns:
-        str: Resolution in WIDTHxHEIGHT format (e.g., "1920x1080")
-    """
-    try:
-        root = tk.Tk()
-        root.withdraw()
-        width = root.winfo_screenwidth()
-        height = root.winfo_screenheight()
-        root.destroy()
-        return f"{width}x{height}"
-    except:
-        return "Unknown"
-
-def get_system_specs():
-    """
-    Get relevant system specifications for gaming.
-    
-    Returns:
-        dict: System specs including CPU, GPU, RAM, OS, and resolution
-    """
-    specs = {}
-    
-    # Operating System
-    specs['os'] = f"{platform.system()} {platform.release()}"
-    
-    # Monitor Resolution
-    specs['resolution'] = get_monitor_resolution()
-    
-    # CPU Information
-    specs['cpu'] = platform.processor()
-    try:
-        if platform.system() == "Windows":
-            cpu_name = subprocess.check_output(["wmic", "cpu", "get", "name"], 
-                                              encoding='utf-8').strip().split('\n')[1]
-            specs['cpu'] = cpu_name.strip()
-        elif platform.system() == "Linux":
-            cpu_info = subprocess.check_output(["cat", "/proc/cpuinfo"], 
-                                              encoding='utf-8')
-            for line in cpu_info.split('\n'):
-                if "model name" in line:
-                    specs['cpu'] = line.split(':')[1].strip()
-                    break
-        elif platform.system() == "Darwin":
-            cpu_name = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], 
-                                              encoding='utf-8').strip()
-            specs['cpu'] = cpu_name
-    except:
-        pass
-    
-    specs['cpu_cores'] = psutil.cpu_count(logical=False)
-    specs['cpu_threads'] = psutil.cpu_count(logical=True)
-    
-    # GPU Information
-    specs['gpu'] = "Unknown"
-    try:
-        import GPUtil
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            specs['gpu'] = gpus[0].name
-            specs['gpu_memory'] = f"{gpus[0].memoryTotal}MB"
-    except:
-        pass
-    
-    # Fallback GPU detection
-    if specs['gpu'] == "Unknown":
+    if system == "Windows":
         try:
-            if platform.system() == "Windows":
-                gpu_info = subprocess.check_output(["wmic", "path", "win32_VideoController", 
-                                                   "get", "name"], encoding='utf-8')
-                gpus = [line.strip() for line in gpu_info.split('\n') 
-                        if line.strip() and line.strip() != 'Name']
-                if gpus:
-                    specs['gpu'] = gpus[0]
-            elif platform.system() == "Linux":
-                try:
-                    nvidia_info = subprocess.check_output(["nvidia-smi", "--query-gpu=name", 
-                                                          "--format=csv,noheader"], 
-                                                         encoding='utf-8')
-                    specs['gpu'] = nvidia_info.strip()
-                except:
-                    lspci_info = subprocess.check_output(["lspci"], encoding='utf-8')
-                    for line in lspci_info.split('\n'):
-                        if 'VGA' in line or 'Display' in line:
-                            specs['gpu'] = line.split(':')[-1].strip()
-                            break
-            elif platform.system() == "Darwin":
-                gpu_info = subprocess.check_output(["system_profiler", "SPDisplaysDataType"], 
-                                                  encoding='utf-8')
-                for line in gpu_info.split('\n'):
-                    if 'Chipset Model:' in line:
-                        specs['gpu'] = line.split(':')[1].strip()
+            # Use WMIC to get CPU name on Windows
+            result = subprocess.check_output(
+                ['wmic', 'cpu', 'get', 'name'],
+                encoding='utf-8',
+                errors='ignore'
+            )
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            if len(lines) > 1:
+                cpu_name = lines[1].strip()
+        except:
+            # Fallback to platform.processor()
+            cpu_name = platform.processor()
+    
+    elif system == "Linux":
+        try:
+            # Read from /proc/cpuinfo
+            with open('/proc/cpuinfo', 'r') as f:
+                for line in f:
+                    if 'model name' in line:
+                        cpu_name = line.split(':', 1)[1].strip()
                         break
+        except:
+            cpu_name = platform.processor()
+    
+    elif system == "Darwin":  # macOS
+        try:
+            result = subprocess.check_output(
+                ['sysctl', '-n', 'machdep.cpu.brand_string'],
+                encoding='utf-8'
+            )
+            cpu_name = result.strip()
+        except:
+            cpu_name = platform.processor()
+    
+    return cpu_name
+
+
+def get_gpu_info():
+    """Get GPU information for AMD, NVIDIA, and Intel GPUs."""
+    system = platform.system()
+    
+    if system == "Windows":
+        try:
+            # Use WMIC to get GPU info on Windows
+            result = subprocess.check_output(
+                ['wmic', 'path', 'win32_VideoController', 'get', 'name,AdapterRAM'],
+                encoding='utf-8',
+                errors='ignore'
+            )
+            
+            lines = [line.strip() for line in result.split('\n') if line.strip()]
+            
+            # Filter out virtual/remote display adapters
+            virtual_keywords = ['parsec', 'virtual', 'remote', 'microsoft basic', 'vnc', 'teamviewer']
+            real_gpus = []
+            
+            for line in lines[1:]:  # Skip header
+                line_lower = line.lower()
+                # Skip if it contains virtual adapter keywords
+                if any(keyword in line_lower for keyword in virtual_keywords):
+                    continue
+                
+                parts = line.rsplit(None, 1)  # Split from right to get RAM
+                
+                if len(parts) == 2:
+                    gpu_name = parts[0].strip()
+                    try:
+                        vram_bytes = int(parts[1])
+                        vram_gb = round(vram_bytes / (1024**3), 2)
+                    except:
+                        vram_gb = 'Unknown'
+                else:
+                    gpu_name = line.strip()
+                    vram_gb = 'Unknown'
+                
+                # Only add if it looks like a real GPU (AMD, NVIDIA, Intel, or has significant VRAM)
+                if gpu_name and (
+                    'amd' in gpu_name.lower() or 
+                    'radeon' in gpu_name.lower() or
+                    'nvidia' in gpu_name.lower() or 
+                    'geforce' in gpu_name.lower() or
+                    'intel' in gpu_name.lower() or
+                    'arc' in gpu_name.lower() or
+                    (isinstance(vram_gb, (int, float)) and vram_gb > 0.5)
+                ):
+                    real_gpus.append({'name': gpu_name, 'vram_gb': vram_gb})
+            
+            # Return the first real GPU found
+            if real_gpus:
+                return real_gpus[0]
         except:
             pass
     
-    # RAM Information
-    svmem = psutil.virtual_memory()
-    specs['ram_total_gb'] = round(svmem.total / (1024**3), 2)
-    specs['ram_available_gb'] = round(svmem.available / (1024**3), 2)
+    elif system == "Linux":
+        try:
+            # Try lspci for Linux
+            result = subprocess.check_output(['lspci'], encoding='utf-8')
+            for line in result.split('\n'):
+                if 'VGA' in line or 'Display' in line or '3D' in line:
+                    # Extract GPU name
+                    match = re.search(r':\s*(.+?)(?:\(|$)', line)
+                    if match:
+                        gpu_name = match.group(1).strip()
+                        return {'name': gpu_name, 'vram_gb': 'Unknown'}
+        except:
+            pass
     
-    # Storage
+    elif system == "Darwin":  # macOS
+        try:
+            result = subprocess.check_output(
+                ['system_profiler', 'SPDisplaysDataType'],
+                encoding='utf-8'
+            )
+            # Parse macOS system profiler output
+            lines = result.split('\n')
+            for i, line in enumerate(lines):
+                if 'Chipset Model:' in line:
+                    gpu_name = line.split(':', 1)[1].strip()
+                    # Look for VRAM in next few lines
+                    vram_gb = 'Unknown'
+                    for j in range(i, min(i+5, len(lines))):
+                        if 'VRAM' in lines[j] or 'Memory' in lines[j]:
+                            vram_match = re.search(r'(\d+)\s*(MB|GB)', lines[j])
+                            if vram_match:
+                                vram_value = int(vram_match.group(1))
+                                unit = vram_match.group(2)
+                                vram_gb = vram_value if unit == 'GB' else round(vram_value / 1024, 2)
+                            break
+                    return {'name': gpu_name, 'vram_gb': vram_gb}
+        except:
+            pass
+    
+    return {'name': 'Unable to detect GPU', 'vram_gb': 'Unknown'}
+
+
+def get_system_specs():
+    """Gather comprehensive system specifications."""
+    specs = {}
+    
+    # CPU Information
+    cpu_name = get_cpu_info()
+    specs['cpu'] = {
+        'model': cpu_name,
+        'cores': psutil.cpu_count(logical=False),
+        'threads': psutil.cpu_count(logical=True),
+        'frequency_mhz': psutil.cpu_freq().current if psutil.cpu_freq() else 'Unknown'
+    }
+    
+    # RAM Information
+    ram = psutil.virtual_memory()
+    specs['ram'] = {
+        'total_gb': round(ram.total / (1024**3), 2),
+        'available_gb': round(ram.available / (1024**3), 2)
+    }
+    
+    # GPU Information (works with AMD, NVIDIA, Intel)
+    specs['gpu'] = get_gpu_info()
+    
+    # Monitor Resolution
     try:
-        disk = psutil.disk_usage('/')
-        specs['storage_free_gb'] = round(disk.free / (1024**3), 2)
+        monitors = screeninfo.get_monitors()
+        specs['monitors'] = []
+        for m in monitors:
+            specs['monitors'].append({
+                'width': m.width,
+                'height': m.height,
+                'resolution': f"{m.width}x{m.height}"
+            })
+        specs['primary_resolution'] = f"{monitors[0].width}x{monitors[0].height}" if monitors else "Unknown"
     except:
-        specs['storage_free_gb'] = "Unknown"
+        specs['primary_resolution'] = "1920x1080"  # Default fallback
+        specs['monitors'] = [{'width': 1920, 'height': 1080, 'resolution': '1920x1080'}]
+    
+    # OS Information
+    specs['os'] = {
+        'system': platform.system(),
+        'release': platform.release(),
+        'version': platform.version()
+    }
     
     return specs
 
 
-def format_system_specs(specs):
-    """Format system specs into readable text."""
-    formatted = "YOUR PC SPECS:\n"
-    formatted += "=" * 50 + "\n"
-    formatted += f"OS: {specs.get('os', 'Unknown')}\n"
-    formatted += f"Monitor Resolution: {specs.get('resolution', 'Unknown')}\n"
-    formatted += f"CPU: {specs.get('cpu', 'Unknown')}\n"
-    formatted += f"CPU Cores/Threads: {specs.get('cpu_cores', '?')}/{specs.get('cpu_threads', '?')}\n"
-    formatted += f"GPU: {specs.get('gpu', 'Unknown')}\n"
-    if 'gpu_memory' in specs:
-        formatted += f"GPU Memory: {specs['gpu_memory']}\n"
-    formatted += f"RAM: {specs.get('ram_total_gb', '?')} GB (Available: {specs.get('ram_available_gb', '?')} GB)\n"
-    formatted += f"Free Storage: {specs.get('storage_free_gb', '?')} GB\n"
-    return formatted
-
-
-def search_game_by_name(game_name):
-    """Search for a game by name and return matching results with app IDs."""
-    url = "https://steamcommunity.com/actions/SearchApps/" + game_name
+def get_steam_game_requirements(game_name):
+    """
+    Fetch game requirements from Steam API.
+    Note: Steam's official API has limited data. This uses the store page scraping approach.
+    """
+    # First, search for the game to get its App ID
+    search_url = f"https://store.steampowered.com/api/storesearch/?term={game_name}&cc=US"
     
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        results = response.json()
-        
-        if not results:
-            return []
-        
-        return [{"app_id": game['appid'], "name": game['name']} for game in results]
-        
-    except requests.RequestException as e:
-        print(f"Search failed: {str(e)}")
-        return []
-    except json.JSONDecodeError:
-        print("Failed to parse search results")
-        return []
-
-
-def get_game_requirements(app_id):
-    """Get system requirements for a Steam game using the official API."""
-    url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
-    
-    try:
-        response = requests.get(url)
+        response = requests.get(search_url, timeout=10)
         response.raise_for_status()
         data = response.json()
         
-        if not data[str(app_id)]['success']:
-            return {"error": "Game not found or data unavailable"}
+        if not data.get('items'):
+            return None
         
-        game_data = data[str(app_id)]['data']
+        app_id = data['items'][0]['id']
+        game_title = data['items'][0]['name']
         
-        result = {
-            "name": game_data.get('name', 'Unknown'),
-            "app_id": app_id,
-            "type": game_data.get('type', 'Unknown'),
-            "is_free": game_data.get('is_free', False),
-        }
+        # Get game details
+        details_url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
+        details_response = requests.get(details_url, timeout=10)
+        details_data = details_response.json()
         
-        pc_req = game_data.get('pc_requirements', {})
-        if pc_req:
-            result['pc_requirements'] = {
-                'minimum': pc_req.get('minimum', 'Not specified'),
-                'recommended': pc_req.get('recommended', 'Not specified')
+        if str(app_id) in details_data and details_data[str(app_id)]['success']:
+            game_data = details_data[str(app_id)]['data']
+            
+            requirements = {
+                'game_name': game_title,
+                'app_id': app_id,
+                'minimum': game_data.get('pc_requirements', {}).get('minimum', 'Not available'),
+                'recommended': game_data.get('pc_requirements', {}).get('recommended', 'Not available')
             }
+            
+            return requirements
         
-        return result
+        return None
         
-    except requests.RequestException as e:
-        return {"error": f"Request failed: {str(e)}"}
-    except (KeyError, json.JSONDecodeError) as e:
-        return {"error": f"Failed to parse response: {str(e)}"}
+    except Exception as e:
+        print(f"Error fetching Steam data: {e}")
+        return None
 
 
-def clean_html_requirements(html_text):
-    """Clean HTML from requirements text to make it more readable."""
-    if not html_text or html_text == 'Not specified':
-        return html_text
-    
-    soup = BeautifulSoup(html_text, 'html.parser')
-    return soup.get_text(separator='\n', strip=True)
-
-
-def format_requirements_for_ai(requirements):
-    """Format the requirements data into a clean string for the AI."""
-    if "error" in requirements:
-        return f"Error: {requirements['error']}"
-    
-    formatted = f"GAME REQUIREMENTS FOR: {requirements['name']}\n"
-    formatted += "=" * 50 + "\n"
-    
-    if 'pc_requirements' in requirements:
-        if requirements['pc_requirements']['minimum'] != 'Not specified':
-            formatted += "\nMinimum Requirements:\n"
-            formatted += clean_html_requirements(requirements['pc_requirements']['minimum']) + "\n"
-        
-        if requirements['pc_requirements']['recommended'] != 'Not specified':
-            formatted += "\nRecommended Requirements:\n"
-            formatted += clean_html_requirements(requirements['pc_requirements']['recommended']) + "\n"
-    
-    return formatted
-
-
-def compare_specs_with_ai(game_name, requirements_text, system_specs_text, system_specs):
+def query_lmstudio(system_specs, game_requirements, model_endpoint="http://localhost:1234/v1/chat/completions"):
     """
-    Send both game requirements and system specs to the AI for comparison.
-    
-    Args:
-        game_name: Name of the game
-        requirements_text: Formatted game requirements
-        system_specs_text: Formatted system specifications
-        system_specs: Dictionary of system specs (for resolution)
-    
-    Returns:
-        str: AI's analysis
+    Query the local LM Studio model to analyze game compatibility.
+    Default LM Studio endpoint is http://localhost:1234/v1/chat/completions
     """
-    prompt = f"""{system_specs_text}
-
-{requirements_text}
-
-Question: Can my PC run {game_name}? Please compare my system specs against the game's requirements and tell me:
-1. Whether I meet the minimum requirements
-2. Whether I meet the recommended requirements
-3. What performance I can expect at my monitor resolution ({system_specs.get('resolution', 'unknown')})
-4. What graphics settings I should use (low/medium/high/ultra)
-5. Estimated FPS range I can expect
-6. Any components I should upgrade if needed"""
     
+    # Format system specs nicely
+    specs_text = f"""
+System Specifications:
+- CPU: {system_specs['cpu']['model']} ({system_specs['cpu']['cores']} cores, {system_specs['cpu']['threads']} threads)
+- RAM: {system_specs['ram']['total_gb']} GB
+- GPU: {system_specs['gpu']['name']} ({system_specs['gpu']['vram_gb']} GB VRAM)
+- Primary Monitor Resolution: {system_specs['primary_resolution']}
+- OS: {system_specs['os']['system']} {system_specs['os']['release']}
+"""
+    
+    # Format game requirements
+    game_text = f"""
+Game: {game_requirements['game_name']}
+
+Minimum Requirements:
+{game_requirements['minimum']}
+
+Recommended Requirements:
+{game_requirements['recommended']}
+"""
+    
+    prompt = f"""You are a PC gaming expert. Analyze whether this game will run on the given system and provide detailed performance predictions.
+
+{specs_text}
+
+{game_text}
+
+Based on the system specs and game requirements above, please provide:
+1. Will the game run? (Yes/No)
+2. Expected FPS at different settings (Low, Medium, High, Ultra) at {system_specs['primary_resolution']}
+3. Recommended graphics settings for optimal performance
+4. Any bottlenecks or concerns
+5. Overall compatibility rating (1-10)
+
+Be specific with FPS estimates and explain your reasoning."""
+
     try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-20b",
-            messages=[
-                {"role": "system", "content": "You are a helpful PC gaming expert who compares system specifications against game requirements. Be honest and specific about performance expectations."},
-                {"role": "user", "content": prompt}
-            ]
+        response = requests.post(
+            model_endpoint,
+            json={
+                "model": "local-model",  # LM Studio typically uses this
+                "messages": [
+                    {"role": "system", "content": "You are a knowledgeable PC gaming hardware expert who provides accurate performance estimates for games based on system specifications."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1000
+            },
+            timeout=60
         )
         
-        return response.choices[0].message.content
-    
+        response.raise_for_status()
+        result = response.json()
+        
+        return result['choices'][0]['message']['content']
+        
+    except requests.exceptions.ConnectionError:
+        return "Error: Could not connect to LM Studio. Make sure it's running on http://localhost:1234"
     except Exception as e:
-        return f"Error querying AI: {str(e)}"
+        return f"Error querying LM Studio: {e}"
 
 
-# Main execution
-if __name__ == "__main__":
+def main():
     print("=" * 60)
-    print("STEAM GAME COMPATIBILITY CHECKER")
+    print("Game Compatibility Checker with AI Analysis")
     print("=" * 60)
+    print()
     
-    # Get system specs
-    print("\nDetecting your system specifications...")
-    system_specs = get_system_specs()
-    specs_text = format_system_specs(system_specs)
-    print("\n" + specs_text)
-    
-    # Search for a game
-    game_name = input("\nEnter game name to check: ").strip()
+    # Get game name from user
+    game_name = input("Enter the game name to check: ").strip()
     
     if not game_name:
-        game_name = "Cyberpunk 2077"
-        print(f"Using default: {game_name}")
+        print("No game name provided. Exiting.")
+        return
     
-    print(f"\nSearching for '{game_name}'...")
-    search_results = search_game_by_name(game_name)
+    print("\n[1/3] Gathering system specifications...")
+    system_specs = get_system_specs()
     
-    if not search_results:
-        print("No games found!")
-    else:
-        print(f"\nFound {len(search_results)} results:")
-        for i, game in enumerate(search_results[:5], 1):
-            print(f"{i}. {game['name']} (App ID: {game['app_id']})")
-        
-        # Use the first result
-        selected_game = search_results[0]
-        print(f"\n{'='*60}")
-        print(f"Analyzing: {selected_game['name']}")
-        print('='*60)
-        
-        # Fetch requirements
-        requirements = get_game_requirements(selected_game['app_id'])
-        
-        if "error" in requirements:
-            print(f"Error: {requirements['error']}")
-        else:
-            # Format requirements
-            req_text = format_requirements_for_ai(requirements)
-            print("\n" + req_text)
-            
-            # Ask AI to compare
-            print("\n" + "="*60)
-            print("AI COMPATIBILITY ANALYSIS:")
-            print("="*60 + "\n")
-            
-            ai_response = compare_specs_with_ai(
-                selected_game['name'], 
-                req_text,
-                specs_text,
-                system_specs
-            )
-            
-            print(ai_response)
+    print("\n📊 Your System:")
+    print(f"  CPU: {system_specs['cpu']['model']}")
+    print(f"  RAM: {system_specs['ram']['total_gb']} GB")
+    print(f"  GPU: {system_specs['gpu']['name']}")
+    print(f"  Resolution: {system_specs['primary_resolution']}")
+    
+    print(f"\n[2/3] Fetching game requirements from Steam for '{game_name}'...")
+    game_requirements = get_steam_game_requirements(game_name)
+    
+    if not game_requirements:
+        print("❌ Could not find the game on Steam. Please check the spelling and try again.")
+        return
+    
+    print(f"\n✅ Found: {game_requirements['game_name']} (App ID: {game_requirements['app_id']})")
+    
+    print("\n[3/3] Querying AI model for compatibility analysis...")
+    print("(This may take a moment...)\n")
+    
+    analysis = query_lmstudio(system_specs, game_requirements)
+    
+    print("=" * 60)
+    print("AI ANALYSIS RESULTS")
+    print("=" * 60)
+    print()
+    print(analysis)
+    print()
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()
