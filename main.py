@@ -178,25 +178,25 @@ def get_monitor_resolution():
         return "Unknown"
 
 def get_gpu_info_fixed():
-    """Get GPU information using PowerShell."""
+    """Get GPU information using PowerShell, prioritizing dedicated GPUs."""
     gpu_name = "Unknown"
     
     virtual_keywords = ['parsec', 'virtual', 'remote', 'microsoft basic', 'vnc', 
                        'teamviewer', 'splashtop', 'citrix', 'vmware', 'hyper-v',
                        'generic pnp', 'rdp', 'standard vga']
     
+    # Keywords for integrated graphics that should be deprioritized
+    integrated_keywords = ['intel(r) uhd', 'intel(r) hd', 'intel hd', 'intel uhd',
+                          'amd radeon(tm) graphics', 'radeon graphics', 'vega graphics',
+                          'radeon vega', 'intel iris xe']
+    
     try:
         if platform.system() == "Windows":
+            # Get ALL GPUs, not just the first one
             ps_command = """
-            $gpu = Get-CimInstance Win32_VideoController | Where-Object {
+            Get-CimInstance Win32_VideoController | Where-Object {
                 $_.Name -notmatch 'Parsec|Virtual|Remote|Microsoft Basic|Generic PnP|RDP|Standard VGA'
-            } | Select-Object -First 1
-            
-            $result = @{
-                Name = $gpu.Name
-            }
-            
-            $result | ConvertTo-Json
+            } | Select-Object Name | ConvertTo-Json
             """
             
             gpu_info = run_powershell_command(ps_command)
@@ -204,21 +204,45 @@ def get_gpu_info_fixed():
             if gpu_info:
                 try:
                     gpu_data = json.loads(gpu_info)
-                    name = gpu_data.get('Name', '').strip()
-                    name_lower = name.lower()
                     
-                    # Check if it's a real GPU
-                    if (name and 
-                        ('amd' in name_lower or 'radeon' in name_lower or
-                         'nvidia' in name_lower or 'geforce' in name_lower or
-                         'intel' in name_lower and 'arc' in name_lower or
-                         'intel' in name_lower and 'uhd' in name_lower or
-                         'intel' in name_lower and 'iris' in name_lower or
-                         'gtx' in name_lower or 'rtx' in name_lower or
-                         'rx' in name_lower)):
+                    # Handle both single GPU (dict) and multiple GPUs (list)
+                    if isinstance(gpu_data, dict):
+                        gpu_data = [gpu_data]
+                    
+                    dedicated_gpus = []
+                    integrated_gpus = []
+                    
+                    # Sort GPUs into dedicated and integrated
+                    for gpu in gpu_data:
+                        name = gpu.get('Name', '').strip()
+                        name_lower = name.lower()
                         
-                        gpu_name = name
-                        return gpu_name
+                        # Check if it's a real GPU
+                        if (name and 
+                            ('amd' in name_lower or 'radeon' in name_lower or
+                             'nvidia' in name_lower or 'geforce' in name_lower or
+                             'intel' in name_lower and 'arc' in name_lower or
+                             'intel' in name_lower and 'uhd' in name_lower or
+                             'intel' in name_lower and 'iris' in name_lower or
+                             'intel' in name_lower and 'hd graphics' in name_lower or
+                             'gtx' in name_lower or 'rtx' in name_lower or
+                             'rx' in name_lower)):
+                            
+                            # Check if it's integrated graphics
+                            is_integrated = any(keyword in name_lower for keyword in integrated_keywords)
+                            
+                            if is_integrated:
+                                integrated_gpus.append(name)
+                            else:
+                                dedicated_gpus.append(name)
+                    
+                    # Prioritize dedicated GPU over integrated
+                    if dedicated_gpus:
+                        gpu_name = dedicated_gpus[0]
+                    elif integrated_gpus:
+                        gpu_name = integrated_gpus[0]
+                    
+                    return gpu_name
                 
                 except json.JSONDecodeError:
                     print("Failed to parse GPU JSON data")
