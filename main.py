@@ -46,9 +46,9 @@ To use this app, you need to set the GOOGLE_AI_API_KEY environment variable.
 
 📋 SETUP INSTRUCTIONS:
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────────────────────────────────────┐
 🪟 WINDOWS - Option 1: Permanent (Recommended)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─────────────────────────────────────────────────────────┘
 
 1. Press Win + R, type: sysdm.cpl
 2. Go to "Advanced" tab → "Environment Variables"
@@ -57,23 +57,23 @@ To use this app, you need to set the GOOGLE_AI_API_KEY environment variable.
 5. Variable value: [Paste your API key]
 6. Click OK, restart this app
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────────────────────────────────────┐
 🪟 WINDOWS - Option 2: Command Prompt (Current Session)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─────────────────────────────────────────────────────────┘
 
 set GOOGLE_AI_API_KEY=your_api_key_here
 python main.py
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────────────────────────────────────┐
 🪟 WINDOWS - Option 3: PowerShell (Current Session)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─────────────────────────────────────────────────────────┘
 
 $env:GOOGLE_AI_API_KEY="your_api_key_here"
 python main.py
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────────────────────────────────────┐
 🐧 LINUX / 🍎 MAC - Permanent
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─────────────────────────────────────────────────────────┘
 
 1. Open terminal
 2. Edit your shell config file:
@@ -84,23 +84,23 @@ python main.py
 4. Save and run: source ~/.bashrc (or ~/.zshrc)
 5. Restart this app
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────────────────────────────────────┐
 🐧 LINUX / 🍎 MAC - Current Session
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─────────────────────────────────────────────────────────┘
 
 export GOOGLE_AI_API_KEY="your_api_key_here"
 python main.py
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌─────────────────────────────────────────────────────────┐
 📄 EASIEST METHOD: .env File (All Platforms)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+└─────────────────────────────────────────────────────────┘
 
 1. Create a file named ".env" in the same folder as this app
 2. Add this line to the file:
    GOOGLE_AI_API_KEY=your_api_key_here
 3. Save and restart the app
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+─────────────────────────────────────────────────────────
 
 🔗 Get your API key from:
    https://aistudio.google.com/app/apikey
@@ -148,8 +148,22 @@ def setup_api_key():
         return None
 
 # ============================================
-# REST OF YOUR APP CODE (SAME AS BEFORE)
+# SYSTEM INFORMATION FUNCTIONS (WMIC REPLACED)
 # ============================================
+
+def run_powershell_command(command):
+    """Run a PowerShell command and return the output."""
+    try:
+        result = subprocess.run(
+            ["powershell", "-Command", command],
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+        )
+        return result.stdout.strip()
+    except Exception as e:
+        print(f"PowerShell command error: {e}")
+        return ""
 
 def get_monitor_resolution():
     """Get the monitor resolution."""
@@ -164,9 +178,8 @@ def get_monitor_resolution():
         return "Unknown"
 
 def get_gpu_info_fixed():
-    """Get GPU information, filtering out virtual display adapters."""
+    """Get GPU information using PowerShell."""
     gpu_name = "Unknown"
-    gpu_memory = None
     
     virtual_keywords = ['parsec', 'virtual', 'remote', 'microsoft basic', 'vnc', 
                        'teamviewer', 'splashtop', 'citrix', 'vmware', 'hyper-v',
@@ -174,48 +187,42 @@ def get_gpu_info_fixed():
     
     try:
         if platform.system() == "Windows":
-            gpu_info = subprocess.check_output(
-                ["wmic", "path", "win32_VideoController", "get", "name,AdapterRAM"],
-                encoding='utf-8',
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
+            ps_command = """
+            $gpu = Get-CimInstance Win32_VideoController | Where-Object {
+                $_.Name -notmatch 'Parsec|Virtual|Remote|Microsoft Basic|Generic PnP|RDP|Standard VGA'
+            } | Select-Object -First 1
             
-            lines = [line.strip() for line in gpu_info.split('\n') if line.strip()]
+            $result = @{
+                Name = $gpu.Name
+            }
             
-            for line in lines[1:]:
-                if not line:
-                    continue
-                
-                line_lower = line.lower()
-                
-                if any(keyword in line_lower for keyword in virtual_keywords):
-                    continue
-                
-                parts = line.rsplit(None, 1)
-                
-                if len(parts) >= 1:
-                    potential_gpu = parts[0].strip()
+            $result | ConvertTo-Json
+            """
+            
+            gpu_info = run_powershell_command(ps_command)
+            
+            if gpu_info:
+                try:
+                    gpu_data = json.loads(gpu_info)
+                    name = gpu_data.get('Name', '').strip()
+                    name_lower = name.lower()
                     
-                    if (potential_gpu and 
-                        ('amd' in line_lower or 'radeon' in line_lower or
-                         'nvidia' in line_lower or 'geforce' in line_lower or
-                         'intel' in line_lower and 'arc' in line_lower or
-                         'intel' in line_lower and 'uhd' in line_lower or
-                         'intel' in line_lower and 'iris' in line_lower or
-                         'gtx' in line_lower or 'rtx' in line_lower or
-                         'rx' in line_lower)):
+                    # Check if it's a real GPU
+                    if (name and 
+                        ('amd' in name_lower or 'radeon' in name_lower or
+                         'nvidia' in name_lower or 'geforce' in name_lower or
+                         'intel' in name_lower and 'arc' in name_lower or
+                         'intel' in name_lower and 'uhd' in name_lower or
+                         'intel' in name_lower and 'iris' in name_lower or
+                         'gtx' in name_lower or 'rtx' in name_lower or
+                         'rx' in name_lower)):
                         
-                        gpu_name = potential_gpu
-                        
-                        if len(parts) == 2:
-                            try:
-                                vram_bytes = int(parts[1])
-                                gpu_memory = f"{round(vram_bytes / (1024**2))}MB"
-                            except:
-                                pass
-                        
-                        break
-            
+                        gpu_name = name
+                        return gpu_name
+                
+                except json.JSONDecodeError:
+                    print("Failed to parse GPU JSON data")
+        
         elif platform.system() == "Linux":
             try:
                 nvidia_info = subprocess.check_output(
@@ -245,7 +252,26 @@ def get_gpu_info_fixed():
     except Exception as e:
         print(f"GPU detection error: {e}")
     
-    return gpu_name, gpu_memory
+    return gpu_name
+
+def get_cpu_info_windows():
+    """Get CPU information using PowerShell instead of WMIC."""
+    try:
+        ps_command = "Get-CimInstance Win32_Processor | Select-Object Name | ConvertTo-Json"
+        cpu_info = run_powershell_command(ps_command)
+        
+        if cpu_info:
+            cpu_data = json.loads(cpu_info)
+            
+            # Handle both single CPU (dict) and multiple CPUs (list)
+            if isinstance(cpu_data, dict):
+                return cpu_data.get('Name', '').strip()
+            elif isinstance(cpu_data, list) and len(cpu_data) > 0:
+                return cpu_data[0].get('Name', '').strip()
+    except Exception as e:
+        print(f"CPU detection error: {e}")
+    
+    return platform.processor()
 
 def get_system_specs():
     """Get relevant system specifications for gaming."""
@@ -254,19 +280,11 @@ def get_system_specs():
     specs['os'] = f"{platform.system()} {platform.release()}"
     specs['resolution'] = get_monitor_resolution()
     
+    # Get CPU info
     specs['cpu'] = platform.processor()
     try:
         if platform.system() == "Windows":
-            cpu_name = subprocess.check_output(
-                ["wmic", "cpu", "get", "name"],
-                encoding='utf-8',
-                creationflags=subprocess.CREATE_NO_WINDOW
-            ).strip()
-            lines = [line.strip() for line in cpu_name.split('\n') if line.strip()]
-            if len(lines) > 1:
-                specs['cpu'] = lines[1]
-            elif lines:
-                specs['cpu'] = lines[0].replace('Name', '').strip()
+            specs['cpu'] = get_cpu_info_windows()
         elif platform.system() == "Linux":
             cpu_info = subprocess.check_output(["cat", "/proc/cpuinfo"], 
                                               encoding='utf-8')
@@ -278,20 +296,16 @@ def get_system_specs():
             cpu_name = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], 
                                               encoding='utf-8').strip()
             specs['cpu'] = cpu_name
-    except:
-        pass
+    except Exception as e:
+        print(f"CPU info error: {e}")
     
     specs['cpu_cores'] = psutil.cpu_count(logical=False)
     specs['cpu_threads'] = psutil.cpu_count(logical=True)
     
-    gpu_name, gpu_memory = get_gpu_info_fixed()
-    specs['gpu'] = gpu_name
-    if gpu_memory:
-        specs['gpu_memory'] = gpu_memory
+    specs['gpu'] = get_gpu_info_fixed()
     
     svmem = psutil.virtual_memory()
     specs['ram_total_gb'] = round(svmem.total / (1024**3), 2)
-    specs['ram_available_gb'] = round(svmem.available / (1024**3), 2)
     
     try:
         disk = psutil.disk_usage('/')
@@ -300,6 +314,10 @@ def get_system_specs():
         specs['storage_free_gb'] = "Unknown"
     
     return specs
+
+# ============================================
+# STEAM API FUNCTIONS
+# ============================================
 
 def search_game_by_name(game_name):
     """Search for a game by name and return matching results with app IDs."""
@@ -387,9 +405,7 @@ def format_system_specs(specs):
     formatted += f"CPU: {specs.get('cpu', 'Unknown')}\n"
     formatted += f"CPU Cores/Threads: {specs.get('cpu_cores', '?')}/{specs.get('cpu_threads', '?')}\n"
     formatted += f"GPU: {specs.get('gpu', 'Unknown')}\n"
-    if 'gpu_memory' in specs:
-        formatted += f"GPU Memory: {specs['gpu_memory']}\n"
-    formatted += f"RAM: {specs.get('ram_total_gb', '?')} GB (Available: {specs.get('ram_available_gb', '?')} GB)\n"
+    formatted += f"RAM: {specs.get('ram_total_gb', '?')} GB\n"
     formatted += f"Free Storage: {specs.get('storage_free_gb', '?')} GB\n"
     return formatted
 
@@ -494,10 +510,7 @@ def show_specs():
     output_box.insert(tk.END, f"CPU: {specs.get('cpu', 'Unknown')}\n")
     output_box.insert(tk.END, f"CPU Cores/Threads: {specs.get('cpu_cores', '?')}/{specs.get('cpu_threads', '?')}\n")
     output_box.insert(tk.END, f"GPU: {specs.get('gpu', 'Unknown')}\n")
-    if 'gpu_memory' in specs:
-        output_box.insert(tk.END, f"GPU Memory: {specs['gpu_memory']}\n")
     output_box.insert(tk.END, f"RAM: {specs.get('ram_total_gb', '?')} GB\n")
-    output_box.insert(tk.END, f"Available RAM: {specs.get('ram_available_gb', '?')} GB\n")
     output_box.insert(tk.END, f"Free Storage: {specs.get('storage_free_gb', '?')} GB\n")
     output_box.insert(tk.END, "=" * 60 + "\n\n")
 
