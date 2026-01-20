@@ -1,5 +1,5 @@
 .env
-local-ai/models/
+
 # Python
 __pycache__/
 *.py[cod]
