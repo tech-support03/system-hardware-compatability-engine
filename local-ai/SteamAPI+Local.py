@@ -18,7 +18,7 @@ try:
     # Initialize the model - downloads automatically on first run
     ai_model = pipeline(
         'text-generation',
-        model='microsoft/Phi-3-mini-4k-instruct',
+        model='microsoft/Phi-3.5-mini-instruct',
         device=0  # Use CPU (-1), change to 0 for GPU
     )
     print("AI model loaded successfully!")
